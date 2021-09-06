@@ -1,5 +1,5 @@
 import bpy
-from jax_cloth import utils
+from jax_cloth import utils, sim
 
 #from jax import grad
 import jax.numpy as jnp
