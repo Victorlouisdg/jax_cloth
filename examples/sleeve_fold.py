@@ -3,8 +3,14 @@ from functools import partial
 import jax.numpy as jnp
 from jax import grad, vmap
 from jax.ops import index
+import time
+import bpy
+
+bpy.context.scene.frame_set(0)
 
 object_name = "Shirt"
+ob = bpy.data.objects[object_name]
+ob.animation_data_clear()
 
 positions, triangles = utils.get_mesh(object_name)
 positions = jnp.array(positions)
@@ -16,9 +22,9 @@ positions_uv = positions[:, :2]
 velocities = jnp.zeros_like(positions)
 initial_state = positions, velocities
 
-# from sim import triangle_stretch_energy
+energy_fn = partial(sim.triangle_stretch_energy, ku=1000.0, kv=1000.0)
 
-energy_fn = partial(sim.triangle_stretch_energy, ku=10000.0, kv=10000.0)
+print("start energy", energy_fn(positions[triangles[0]], positions_uv[triangles[0]]))
 
 # TODO think about how I can simplify this.
 def mesh_energy(positions_flat, positions_uv, triangles, energy_fn):
@@ -27,6 +33,8 @@ def mesh_energy(positions_flat, positions_uv, triangles, energy_fn):
     total_energy = jnp.sum(energies)
     return -total_energy
 
+
+print("mesh energy", mesh_energy(positions, positions_uv, triangles, energy_fn))
 
 mesh_energy_fn = partial(
     mesh_energy, positions_uv=positions_uv, triangles=triangles, energy_fn=energy_fn
@@ -45,15 +53,26 @@ gravity = masses * jnp.array(g)
 
 M = jnp.diag(masses)
 
-forces_fn_grav = lambda x: forces_fn(x) + gravity
+forces_fn_grav = lambda x: forces_fn(x) + gravity  # implicit
 
-dt = 0.01
+# forces_fn_grav = lambda x: forces_fn(x) + gravity.reshape(-1, 3) # explicit
+# forces_fn_grav = lambda x: gravity.reshape(-1, 3)
+
+print("gravity", gravity.shape)
+print("masses", masses.shape)
+print("positions", positions.shape)
+print("positions flat", positions.flatten().shape)
+
+
+fps = 24
+substeps = 10
+dt = 1.0 / (fps * substeps)
 
 build_fn = partial(sim.build_system_BW, forces_fn=forces_fn_grav, M=M)
 
 S = jnp.identity(system_size)
 
-pinned = jnp.array([0, 4])
+pinned = jnp.array([91, 103])
 
 for i in pinned:
     S = S.at[index[3 * i : 3 * i + 3, 3 * i : 3 * i + 3]].set(0.0)
@@ -63,86 +82,50 @@ z = jnp.zeros(system_size)
 
 step_fn = partial(sim.step_PPCG, build_fn=build_fn, S=S, z=z, dt=dt)
 
+# step_fn = partial(
+#     sim.step_explicit_euler,
+#     forces_fn=forces_fn_grav,
+#     masses=masses,
+#     pinned=pinned,
+#     dt=dt,
+# )
 
-def step_dummy(carry, input):
-    positions, velocities = carry
-
-    positions_new = positions.at[:, 2].add(-0.01)
-
-    carry = (positions_new, velocities)
-    output = positions_new
-    return (carry, output)
+# step_fn(initial_state, None)
 
 
-history = sim.simulate(step_dummy, initial_state, 1000)
+# def step_dummy(carry, input):
+#     positions, velocities = carry
 
-import bpy
+#     positions_new = positions.at[:, 2].add(-dt)
 
-# bpy.context.scene.frame_set(0)
-# for i in range(99):
-#     bpy.context.scene.frame_set(bpy.context.scene.frame_current + 1)
-#     ob = bpy.data.objects[object_name]
-#     mesh = ob.data
-#     for j, v in enumerate(mesh.vertices):
-#         v.co = history[i, j, :]
+#     carry = (positions_new, velocities)
+#     output = positions_new
+#     return (carry, output)
 
-ob = bpy.data.objects[object_name]
+
+seconds = 1
+frames = fps * seconds
+steps = frames * substeps
+
+history = sim.simulate(step_fn, initial_state, steps)
+
 mesh = ob.data
-
-sk_basis = ob.shape_key_add(name="Basis")
-
-import time
-import bmesh
 
 t0 = time.time()
 
-sk = ob.shape_key_add(name="Deform")
+for i in range(frames):
+    for j, v in enumerate(mesh.vertices):
+        v.co = history[substeps * i, j, :]
+        v.keyframe_insert("co", frame=i + 1)
 
+bpy.context.scene.frame_set(0)
+bpy.context.scene.frame_end = frames
+
+# Set positions back to original
 for j, v in enumerate(mesh.vertices):
-    v.co.x += 0.2
-
-# bpy.ops.object.mode_set(mode="EDIT")
-# bm = bmesh.from_edit_mesh(mesh)
-# for j, v in enumerate(bm.verts):
-#     v.co.x += 0.2
-# bmesh.update_edit_mesh(mesh, True)
-# bpy.ops.object.mode_set(mode="OBJECT")
-
-
-# bm = bmesh.new()
-# bm.from_mesh(mesh)
-
-# print(bm.verts)
-
-# for i in range(10):
-#     # Method 1: key each vertex
-#     # for j, v in enumerate(mesh.vertices):
-#     #     v.co = history[i, j, :]
-#     #     v.keyframe_insert("co", frame=i)
-
-#     # Method 2: add shapekeys
-#     # sk = ob.shape_key_add(name="Deform")
-#     # for j in range(len(mesh.vertices)):
-#     #     sk.data[j].co = history[i, j, :]
-
-#     # Method 3: edit bmesh
-#     sk = ob.shape_key_add(name="Deform")
-
-#     for j, v in enumerate(bm.verts):
-#         v.co = history[i, j, :]
-#         # print(v.co)
-
-#     # print(type(sk.data[0]))
-#     bm.to_mesh(mesh)
-
-#     # sk.keyframe_insert(data_path="value", frame=i)
-
-#     # Does not work: keyframe all vertices at once
-#     # mesh.keyframe_insert("vertices", frame=i)
+    v.co = positions[j]
 
 
 t1 = time.time()
 
-print(t1 - t0, "seconds elapsed")
-
-print(history.shape)
+print(t1 - t0, "seconds elapsed to animate mesh")

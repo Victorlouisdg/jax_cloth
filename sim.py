@@ -95,3 +95,19 @@ def step_PPCG(carry, input, build_fn, S, z, dt):
     carry = (positions_new, velocities_new)
     output = positions_new
     return (carry, output)
+
+
+def step_explicit_euler(carry, input, forces_fn, masses, pinned, dt):
+    positions, velocities = carry
+
+    forces = forces_fn(positions)
+
+    accelerations = forces / masses.reshape(-1, 3)
+    accelerations = accelerations.at[pinned].set(0.0)
+
+    velocities_new = velocities + accelerations * dt
+    positions_new = positions + velocities * dt
+
+    carry = (positions_new, velocities_new)
+    output = positions_new
+    return (carry, output)
