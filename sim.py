@@ -22,7 +22,7 @@ def area(triangle_vertices):
     return jnp.linalg.norm(jnp.cross(v1 - v0, v2 - v0)) / 2.0
 
 
-def triangle_stretch_energy(positions, positions_uv, ku, kv):
+def stretch_energy_BW(positions, positions_uv, ku, kv):
     a = area(positions_uv)
 
     F = deformation_gradient(positions, positions_uv)
@@ -33,6 +33,17 @@ def triangle_stretch_energy(positions, positions_uv, ku, kv):
     Eu = 0.5 * a * ku * (Cu ** 2)
     Ev = 0.5 * a * kv * (Cv ** 2)
     return Eu + Ev
+
+
+def shear_energy_BW(positions, positions_uv, k):
+    a = area(positions_uv)
+
+    F = deformation_gradient(positions, positions_uv)
+    wu, wv = jnp.hsplit(F, 2)
+    C = wu.transpose() @ wv
+
+    E = 0.5 * a * k * (C ** 2)
+    return E
 
 
 def mesh_energy(positions_flat, positions_uv, triangles, energy_fn):

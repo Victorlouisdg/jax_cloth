@@ -18,26 +18,26 @@ triangles = jnp.array(triangles)
 
 positions_uv = positions[:, :2]
 
-
 velocities = jnp.zeros_like(positions)
 initial_state = positions, velocities
 
-energy_fn = partial(sim.triangle_stretch_energy, ku=1000.0, kv=1000.0)
-
-print("start energy", energy_fn(positions[triangles[0]], positions_uv[triangles[0]]))
+triangle_energy_fn = lambda x, y: partial(sim.stretch_energy_BW, ku=1000.0, kv=1000.0)(
+    x, y
+) + partial(sim.shear_energy_BW, k=100.0)(x, y)
 
 # TODO think about how I can simplify this.
-def mesh_energy(positions_flat, positions_uv, triangles, energy_fn):
+def mesh_energy(positions_flat, positions_uv, triangles, triangle_energy_fn):
     positions = positions_flat.reshape(-1, 3)
-    energies = vmap(energy_fn)(positions[triangles], positions_uv[triangles])
+    energies = vmap(triangle_energy_fn)(positions[triangles], positions_uv[triangles])
     total_energy = jnp.sum(energies)
     return -total_energy
 
 
-print("mesh energy", mesh_energy(positions, positions_uv, triangles, energy_fn))
-
 mesh_energy_fn = partial(
-    mesh_energy, positions_uv=positions_uv, triangles=triangles, energy_fn=energy_fn
+    mesh_energy,
+    positions_uv=positions_uv,
+    triangles=triangles,
+    triangle_energy_fn=triangle_energy_fn,
 )
 
 forces_fn = grad(mesh_energy_fn)
@@ -53,16 +53,7 @@ gravity = masses * jnp.array(g)
 
 M = jnp.diag(masses)
 
-forces_fn_grav = lambda x: forces_fn(x) + gravity  # implicit
-
-# forces_fn_grav = lambda x: forces_fn(x) + gravity.reshape(-1, 3) # explicit
-# forces_fn_grav = lambda x: gravity.reshape(-1, 3)
-
-print("gravity", gravity.shape)
-print("masses", masses.shape)
-print("positions", positions.shape)
-print("positions flat", positions.flatten().shape)
-
+forces_fn_grav = lambda x: forces_fn(x) + gravity
 
 fps = 24
 substeps = 10
@@ -82,28 +73,7 @@ z = jnp.zeros(system_size)
 
 step_fn = partial(sim.step_PPCG, build_fn=build_fn, S=S, z=z, dt=dt)
 
-# step_fn = partial(
-#     sim.step_explicit_euler,
-#     forces_fn=forces_fn_grav,
-#     masses=masses,
-#     pinned=pinned,
-#     dt=dt,
-# )
-
-# step_fn(initial_state, None)
-
-
-# def step_dummy(carry, input):
-#     positions, velocities = carry
-
-#     positions_new = positions.at[:, 2].add(-dt)
-
-#     carry = (positions_new, velocities)
-#     output = positions_new
-#     return (carry, output)
-
-
-seconds = 1
+seconds = 5
 frames = fps * seconds
 steps = frames * substeps
 
