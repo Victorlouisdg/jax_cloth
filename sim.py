@@ -53,12 +53,12 @@ def mesh_energy(positions_flat, positions_uv, triangles, energy_fn):
     return -total_energy
 
 
-def simulate(step_fn, initial_state, amount_of_steps):
-    carry, outputs = scan(step_fn, initial_state, xs=None, length=amount_of_steps)
+def simulate(step_fn, initial_state, trajectory, amount_of_steps):
+    carry, outputs = scan(step_fn, initial_state, xs=trajectory, length=amount_of_steps)
     return outputs
 
 
-def build_system_BW(positions, velocities, dt, forces_fn, M):
+def build_system_BW(positions, velocities, y, dt, forces_fn, M):
     h = dt
     x0 = positions.flatten()
     v0 = velocities.flatten()
@@ -68,7 +68,7 @@ def build_system_BW(positions, velocities, dt, forces_fn, M):
 
     # Equation (16) in Baraff-Witkin.
     A = M - (h * h) * dfdx
-    b = h * (f0 + h * (dfdx @ v0))
+    b = h * (f0 + dfdx @ (h * v0 + y))
 
     return A, b
 
@@ -94,7 +94,11 @@ def PPCG(A, b, S, z):
 def step_PPCG(carry, input, build_fn, S, z, dt):
     positions, velocities = carry
 
-    A, b = build_fn(positions, velocities, dt)
+    target_point = input
+    y = jnp.zeros_like(positions)
+    y.at[0].set(positions[0] - target_point)
+
+    A, b = build_fn(positions, velocities, y, dt)
 
     x = PPCG(A, b, S, z)
 
@@ -122,3 +126,17 @@ def step_explicit_euler(carry, input, forces_fn, masses, pinned, dt):
     carry = (positions_new, velocities_new)
     output = positions_new
     return (carry, output)
+
+
+def lerp(p0, p1, t):
+    return (1 - t) * p0 + t * p1
+
+
+def bezier_evaluate(p0, p1, p2, p3, t):
+    a = lerp(p0, p1, t)
+    b = lerp(p1, p2, t)
+    c = lerp(p2, p3, t)
+    d = lerp(a, b, t)
+    e = lerp(b, c, t)
+    p = lerp(d, e, t)
+    return p

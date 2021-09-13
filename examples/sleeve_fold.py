@@ -77,16 +77,31 @@ seconds = 5
 frames = fps * seconds
 steps = frames * substeps
 
-history = sim.simulate(step_fn, initial_state, steps)
+# history = sim.simulate(step_fn, initial_state, trajectory, steps)
 
 mesh = ob.data
 
 t0 = time.time()
 
-for i in range(frames):
-    for j, v in enumerate(mesh.vertices):
-        v.co = history[substeps * i, j, :]
-        v.keyframe_insert("co", frame=i + 1)
+
+grasped_vertex = 0
+
+p0 = positions[grasped_vertex]
+p3 = p0.at[0].multiply(-1.0)  # mirror over YZ-plane
+p1 = 2 / 3 * p0 + 1 / 3 * p3 + jnp.array([0, 0, 1])
+p2 = 1 / 3 * p0 + 2 / 3 * p3 + jnp.array([0, 0, 1])
+
+trajectory = [
+    sim.bezier_evaluate(p0, p1, p2, p3, (i + 1) / steps) for i in range(steps)
+]
+
+utils.bezier_from_points(p0, p1, p2, p3)
+
+
+# for i in range(frames):
+#     for j, v in enumerate(mesh.vertices):
+#         v.co = history[substeps * i, j, :]
+#         v.keyframe_insert("co", frame=i + 1)
 
 bpy.context.scene.frame_set(0)
 bpy.context.scene.frame_end = frames
