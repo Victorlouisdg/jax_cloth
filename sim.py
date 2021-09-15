@@ -62,6 +62,7 @@ def build_system_BW(positions, velocities, y, dt, forces_fn, M):
     h = dt
     x0 = positions.flatten()
     v0 = velocities.flatten()
+    y = y.flatten()
 
     f0 = forces_fn(x0)
     dfdx = jacobian(forces_fn)(x0)
@@ -95,8 +96,9 @@ def step_PPCG(carry, input, build_fn, S, z, dt):
     positions, velocities = carry
 
     target_point = input
+
     y = jnp.zeros_like(positions)
-    y.at[0].set(positions[0] - target_point)
+    y = y.at[0].set(target_point - positions[0])
 
     A, b = build_fn(positions, velocities, y, dt)
 
@@ -105,7 +107,7 @@ def step_PPCG(carry, input, build_fn, S, z, dt):
     delta_v = x.reshape(-1, 3)
 
     velocities_new = velocities + delta_v
-    positions_new = positions + velocities_new * dt
+    positions_new = positions + velocities_new * dt + y
 
     carry = (positions_new, velocities_new)
     output = positions_new
