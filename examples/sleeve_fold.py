@@ -1,7 +1,7 @@
-from jax_cloth import utils, sim
+from jax_cloth import utils, sim, viz
 from functools import partial
 import jax.numpy as jnp
-from jax import grad, vmap
+from jax import grad, vmap, jit
 from jax.ops import index
 import time
 import bpy
@@ -61,17 +61,10 @@ dt = 1.0 / (fps * substeps)
 
 build_fn = partial(sim.build_system_BW, forces_fn=forces_fn_grav, M=M)
 
-S = jnp.identity(system_size)
-
-pinned = jnp.array([0, 24, 50, 91, 103])
-
-for i in pinned:
-    S = S.at[index[3 * i : 3 * i + 3, 3 * i : 3 * i + 3]].set(0.0)
-
-z = jnp.zeros(system_size)
+animated = jnp.array([0, 1, 2])
 
 
-step_fn = partial(sim.step_PPCG, build_fn=build_fn, S=S, z=z, dt=dt)
+step_fn = jit(partial(sim.step_PPCG, build_fn=build_fn, animated=animated, dt=dt))
 
 seconds = 5
 frames = fps * seconds
@@ -82,40 +75,25 @@ mesh = ob.data
 
 t0 = time.time()
 
-grasped_vertex = 0
 
-p0 = positions[grasped_vertex]
-p3 = p0.at[0].multiply(-1.0)  # mirror over YZ-plane
-p1 = 2 / 3 * p0 + 1 / 3 * p3 + jnp.array([0, 0, 1])
-p2 = 1 / 3 * p0 + 2 / 3 * p3 + jnp.array([0, 0, 1])
+def generate_bezier(start_position):
+    p0 = start_position
+    p3 = p0.at[0].multiply(-1.0)  # mirror over YZ-plane
+    h = jnp.linalg.norm(p3 - p0) / 2
+    p1 = 2 / 3 * p0 + 1 / 3 * p3 + jnp.array([0, 0, h])
+    p2 = 1 / 3 * p0 + 2 / 3 * p3 + jnp.array([0, 0, h])
 
-bezier_sampled = [
-    sim.bezier_evaluate(p0, p1, p2, p3, (i + 1) / steps) for i in range(steps)
-]
+    bezier_samples = [
+        sim.bezier_evaluate(p0, p1, p2, p3, (i + 1) / steps) for i in range(steps)
+    ]
 
-trajectory = jnp.array(bezier_sampled)
+    # For debugging
+    viz.bezier_from_points(p0, p1, p2, p3)
 
-# trajectory = jnp.tile(p0, (steps, 1))
+    return jnp.array(bezier_samples)
 
-###
-# import bmesh
 
-# verts = [(1, 1, 1), (0, 0, 0)]  # 2 verts made with XYZ coords
-# mesh2 = bpy.data.meshes.new("mesh")  # add a new mesh
-# object = bpy.data.objects.new("MESH", mesh2)
-# bpy.context.collection.objects.link(object)
-
-# bm2 = bmesh.new()
-
-# for v in bezier_sampled:
-#     bm2.verts.new(v)  # add a new vert
-
-# # make the bmesh the object's mesh
-# bm2.to_mesh(mesh2)
-# bm2.free()  # always do this when finished
-###
-
-utils.bezier_from_points(p0, p1, p2, p3)
+trajectory = jnp.stack([generate_bezier(positions[a]) for a in animated], axis=1)
 
 history = sim.simulate(step_fn, initial_state, trajectory, steps)
 

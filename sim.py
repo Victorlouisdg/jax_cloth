@@ -1,6 +1,7 @@
+import jax
 import jax.numpy as jnp
 from jax import grad, jacobian, vmap
-from jax.lax import scan
+from jax.lax import scan, cond
 from jax.ops import index
 import jax.scipy.sparse
 
@@ -40,7 +41,7 @@ def shear_energy_BW(positions, positions_uv, k):
 
     F = deformation_gradient(positions, positions_uv)
     wu, wv = jnp.hsplit(F, 2)
-    C = wu.transpose() @ wv
+    C = wu.T @ wv
 
     E = 0.5 * a * k * (C ** 2)
     return E
@@ -92,13 +93,45 @@ def PPCG(A, b, S, z):
     return x
 
 
-def step_PPCG(carry, input, build_fn, S, z, dt):
+def collision_Szy(position, velocity):
+    n = jnp.array([0.0, 0.0, 1.0])
+    S = jnp.identity(3) - n.T @ n
+    z = -velocity
+    y = jnp.array([0, 0, -position[2]])
+    return S, z, y
+
+
+def no_collision_Szy():
+    S = jnp.identity(3)
+    z = jnp.zeros(3)
+    y = jnp.zeros(3)
+    return S, z, y
+
+
+def handle_collision(position, velocity):
+    return cond(
+        position[2] < 0.0,
+        lambda x: collision_Szy(*x),
+        lambda _: no_collision_Szy(),
+        operand=(position, velocity),
+    )
+
+
+def handle_collisions(positions, velocities):
+    return vmap(handle_collision)(positions, velocities)
+
+
+def step_PPCG(carry, input, build_fn, animated, dt):
     positions, velocities = carry
+    animated_positions = input
 
-    target_point = input
+    S, z, y = handle_collisions(positions, velocities)
+    S = S.at[animated].set(0.0)
+    z = z.at[animated].set(0.0)
+    y = y.at[animated].set(animated_positions - positions[animated])
 
-    y = jnp.zeros_like(positions)
-    y = y.at[0].set(target_point - positions[0])
+    S = jax.scipy.linalg.block_diag(*S)
+    z = z.flatten()
 
     A, b = build_fn(positions, velocities, y, dt)
 
