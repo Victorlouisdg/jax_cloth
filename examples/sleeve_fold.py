@@ -2,8 +2,8 @@ from jax_cloth import utils, sim, viz
 from functools import partial
 import jax.numpy as jnp
 from jax import grad, vmap, jit
-from jax.ops import index
 import time
+from jax.lax import cond
 import bpy
 
 bpy.context.scene.frame_set(0)
@@ -53,7 +53,23 @@ gravity = masses * jnp.array(g)
 
 M = jnp.diag(masses)
 
-forces_fn_grav = lambda x: forces_fn(x) + gravity
+
+def rayleigh_drag(position, velocity):
+    return cond(
+        position[2] < 0.0,
+        lambda v: -10.0 * v,
+        lambda _: jnp.zeros(3),
+        operand=velocity,
+    )
+
+
+def drag_fn(positions, velocities):
+    positions = positions.reshape(-1, 3)
+    velocities = velocities.reshape(-1, 3)
+    return vmap(rayleigh_drag)(positions, velocities).flatten()
+
+
+forces_fn_grav = lambda x, v: forces_fn(x) + gravity + drag_fn(x, v)
 
 fps = 24
 substeps = 10
@@ -66,7 +82,7 @@ animated = jnp.array([0, 1, 2])
 
 step_fn = jit(partial(sim.step_PPCG, build_fn=build_fn, animated=animated, dt=dt))
 
-seconds = 5
+seconds = 2
 frames = fps * seconds
 steps = frames * substeps
 

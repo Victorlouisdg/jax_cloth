@@ -1,8 +1,7 @@
 import jax
 import jax.numpy as jnp
-from jax import grad, jacobian, vmap
+from jax import jacobian, vmap
 from jax.lax import scan, cond
-from jax.ops import index
 import jax.scipy.sparse
 
 
@@ -65,12 +64,13 @@ def build_system_BW(positions, velocities, y, dt, forces_fn, M):
     v0 = velocities.flatten()
     y = y.flatten()
 
-    f0 = forces_fn(x0)
-    dfdx = jacobian(forces_fn)(x0)
+    f0 = forces_fn(x0, v0)
+    dfdx = jacobian(forces_fn)(x0, v0)
+    dfdv = jacobian(forces_fn, argnums=1)(x0, v0)
 
     # Equation (16) in Baraff-Witkin.
-    A = M - (h * h) * dfdx
-    b = h * (f0 + dfdx @ (h * v0 + y))
+    A = M - h * dfdv - (h * h) * dfdx
+    b = h * (f0 + dfdx @ (h * v0 + y))  # Equation 18
 
     return A, b
 
