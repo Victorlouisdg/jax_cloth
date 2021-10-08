@@ -1,7 +1,7 @@
 from jax_cloth import utils, sim, viz
 from functools import partial
 import jax.numpy as jnp
-from jax import grad, vmap, jit
+from jax import grad, vmap, jit, jacfwd
 import time
 from jax.lax import cond
 import bpy
@@ -78,7 +78,7 @@ def drag_fn(positions, velocities):
     return vmap(rayleigh_drag)(positions, velocities).flatten()
 
 
-forces_fn_grav = lambda x, v: forces_fn(x) + gravity + drag_fn(x, v)
+forces_fn_grav = lambda x, v: forces_fn(x) + drag_fn(x, v) + gravity
 
 fps = 24
 substeps = 10
@@ -86,36 +86,16 @@ dt = 1.0 / (fps * substeps)
 
 build_fn = partial(sim.build_system_BW, forces_fn=forces_fn_grav, M=M)
 
-animated = jnp.array([0, 1, 2])
+animated = jnp.array([0])
 
 
 step_fn = jit(partial(sim.step_PPCG, build_fn=build_fn, animated=animated, dt=dt))
 
-seconds = 5
+seconds = 1
 frames = fps * seconds
 steps = frames * substeps
 
-
 mesh = ob.data
-
-t0 = time.time()
-
-
-# def generate_bezier(start_position):
-#     p0 = start_position
-#     p3 = p0.at[0].multiply(-1.0)  # mirror over YZ-plane
-#     h = jnp.linalg.norm(p3 - p0) / 2
-#     p1 = 2 / 3 * p0 + 1 / 3 * p3 + jnp.array([0, 0, h])
-#     p2 = 1 / 3 * p0 + 2 / 3 * p3 + jnp.array([0, 0, h])
-
-#     bezier_samples = [
-#         sim.bezier_evaluate(p0, p1, p2, p3, (i + 1) / steps) for i in range(steps)
-#     ]
-
-#     # For debugging
-#     viz.bezier_from_points(p0, p1, p2, p3)
-
-#     return jnp.array(bezier_samples)
 
 
 def initialize_control_points(start_position):
@@ -128,35 +108,63 @@ def initialize_control_points(start_position):
     return p0, p1, p2, p3
 
 
-# trajectory = jnp.stack([generate_bezier(positions[a]) for a in animated], axis=1)
+p0, p1, p2, p3 = initialize_control_points(positions[0])
 
-# history = sim.simulate(step_fn, initial_state, trajectory, steps)
 
-# p0, p3
+def bezier(p0, p1, p2, p3, steps):
+    samples = jnp.array(
+        [sim.bezier_evaluate(p0, p1, p2, p3, (i + 1) / steps) for i in range(steps)]
+    )
+    samples = samples.reshape(steps, 1, 3)
+    return samples
 
 
 def loss(free_control_points):
-
     p1, p2 = free_control_points
-
-    # generate trajectory
-    # sim with trajectory
-    # calculate loss
-
-    return jnp.sum(jnp.square(positions_goal - positions)) / amount_of_vertices
+    trajectory = bezier(p0, p1, p2, p3, steps)
+    history = sim.simulate(step_fn, initial_state, trajectory, steps)
+    return jnp.sum(jnp.square(positions_goal - history[-1])) / amount_of_vertices
 
 
-# grad(loss) = grad_loss
-# optimize loss
+t0 = time.time()
 
-print("loss", loss(history[-1]))
-# for i in range(frames):
-#     for j, v in enumerate(mesh.vertices):
-#         v.co = history[substeps * i, j, :]
-#         v.keyframe_insert("co", frame=i + 1)
+print("loss", loss((p1, p2)))
+# # print("jit loss", jit(loss)((p1, p2)))
 
-# bpy.context.scene.frame_set(0)
-# bpy.context.scene.frame_end = frames
+t1 = time.time()
+print(f"Evaluting loss took {t1 - t0} seconds.")
+
+print("jacfwd jit loss", jacfwd(jit(loss))((p1, p2)))
+
+t2 = time.time()
+print(f"Forward grad took {t2 - t1} seconds.")
+
+print("grad jit loss", grad(jit(loss))((p1, p2)))
+
+t3 = time.time()
+print(f"Reverse grad took {t3 - t2} seconds.")
+
+
+# print("grad loss", grad(loss)((p1, p2)))
+
+# Recalculate for viz
+trajectory = bezier(p0, p1, p2, p3, steps)
+
+print("trajcetory[0]", trajectory[0].shape)
+print("positions[animated]", positions[animated].shape)
+
+viz.bezier_from_points(p0, p1, p2, p3)
+
+
+history = sim.simulate(step_fn, initial_state, trajectory, steps)
+
+for i in range(frames):
+    for j, v in enumerate(mesh.vertices):
+        v.co = history[substeps * i, j, :]
+        v.keyframe_insert("co", frame=i + 1)
+
+bpy.context.scene.frame_set(0)
+bpy.context.scene.frame_end = frames
 
 # Set positions back to original
 for j, v in enumerate(mesh.vertices):

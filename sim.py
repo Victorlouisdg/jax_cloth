@@ -121,10 +121,18 @@ def handle_collisions(positions, velocities):
     return vmap(handle_collision)(positions, velocities)
 
 
+# def default_Szy(positions):
+#     S = vmap(lambda x: jnp.identity(3))(positions)
+#     z = jnp.zeros_like(positions)
+#     y = jnp.zeros_like(positions)
+#     return S, z, y
+
+
 def step_PPCG(carry, input, build_fn, animated, dt):
     positions, velocities = carry
     animated_positions = input
 
+    # S, z, y = default_Szy(positions)
     S, z, y = handle_collisions(positions, velocities)
     S = S.at[animated].set(0.0)
     z = z.at[animated].set(0.0)
