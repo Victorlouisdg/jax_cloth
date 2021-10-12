@@ -1,4 +1,5 @@
 import bpy
+import jax.numpy as jnp
 
 
 def select_only(blender_object):
@@ -14,4 +15,4 @@ def get_mesh(object_name):
     positions = [(ob.matrix_world @ v.co) for v in mesh.vertices]
     mesh.calc_loop_triangles()
     triangles = [tri.vertices for tri in mesh.loop_triangles]
-    return positions, triangles
+    return jnp.array(positions), jnp.array(triangles)
