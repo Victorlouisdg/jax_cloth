@@ -169,17 +169,3 @@ def step_explicit_euler(carry, input, forces_fn, masses, pinned, dt):
     carry = (positions_new, velocities_new)
     output = positions_new
     return (carry, output)
-
-
-def lerp(p0, p1, t):
-    return (1 - t) * p0 + t * p1
-
-
-def bezier_evaluate(p0, p1, p2, p3, t):
-    a = lerp(p0, p1, t)
-    b = lerp(p1, p2, t)
-    c = lerp(p2, p3, t)
-    d = lerp(a, b, t)
-    e = lerp(b, c, t)
-    p = lerp(d, e, t)
-    return p
